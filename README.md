@@ -1,4 +1,4 @@
-# Reinforcement Learning Basic Algorithm Tutorial
+# Implementation of Reinforcement Learning Algorithm 
 PyTorch를 기반한 Reinforcement Learning (RL) 알고리즘 튜토리얼
 
 ## Project Structure
