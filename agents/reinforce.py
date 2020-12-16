@@ -27,14 +27,10 @@ class REINFORCEAgent:
         # define models (policy and target)
         self.policy_model = Reinforce(self.config)
         # define memory
-        #self.memory = ReplayMemory(self.config)
         self.history=HistoryMemory(self.config)
-        self.transition_history=[]
-        # define loss
-        self.loss = HuberLoss()
 
         # define optimizer
-        self.optim = torch.optim.RMSprop(self.policy_model.parameters())
+        self.optim = torch.optim.Adam(self.policy_model.parameters())
 
         # define environment
         self.env = gym.make('CartPole-v0').unwrapped
@@ -56,7 +52,7 @@ class REINFORCEAgent:
 
         if self.cuda:
             self.logger.info("Program will run on *****GPU-CUDA***** ")
-            print_cuda_statistics()
+          #  print_cuda_statistics()
             self.device = torch.device("cuda")
             torch.cuda.set_device(self.config.gpu_device)
         else:
@@ -65,11 +61,10 @@ class REINFORCEAgent:
 
         self.policy_model = self.policy_model.to(self.device)
     
-        self.loss = self.loss.to(self.device)
 
 
         # Summary Writer
-        self.summary_writer = SummaryWriter(log_dir=self.config.summary_dir, comment='DQN')
+        self.summary_writer = SummaryWriter(log_dir=self.config.summary_dir, comment='REINFORCE')
 
     def load_checkpoint(self, file_name):
         filename = self.config.checkpoint_dir + file_name
@@ -122,19 +117,16 @@ class REINFORCEAgent:
         if self.cuda:
             state = state.cuda()
         sample = random.random()
-        eps_threshold = self.config.eps_start + (self.config.eps_start - self.config.eps_end) * math.exp(
-            -1. * self.current_iteration / self.config.eps_decay)
+
         self.current_iteration += 1
         action_prob = self.policy_model(state).squeeze(0) #return the action probability
         if self.cuda:
             action_prob=action_prob.cpu()
-        highest_prob_action = np.random.choice(2, p=np.squeeze(action_prob.detach().numpy()))
-        log_prob = torch.log(action_prob.squeeze(0)[highest_prob_action])
-        return highest_prob_action, log_prob
+        action = np.random.choice(2, p=np.squeeze(action_prob.detach().numpy()))
+        log_prob = torch.log(action_prob.squeeze(0)[action])
+        return action, log_prob
 
-        with torch.no_grad():
-            return action.view(1, 1),log_prob  # size (1,1)
-
+    
 
     def compute_gradient(self):
         
@@ -148,15 +140,13 @@ class REINFORCEAgent:
         
 
         # concatenate all batch elements into one
-        state_batch = torch.cat(one_batch.state)  # [128, 3, 40, 80]
+        
         reward_batch = torch.cat(one_batch.reward)  # [128]
         log_probs=one_batch.log_probs
-        GAMMA=0.8
         discounted_rewards = []
         '''
 
-        https://medium.com/@thechrisyoon/deriving-policy-gradients-and-implementing-reinforce-f887949bd63#:~:text=REINFORCE%20is%20a%20Monte%2DCarlo,
-        to%20update%20the%20policy%20parameter.&text=Store%20log%20probabilities%20(of%20policy)%20and%20reward%20values%20at%20each%20step
+        https://medium.com/@thechrisyoon/deriving-policy-gradients-and-implementing-reinforce-f887949bd63
 
         '''
 
@@ -164,13 +154,13 @@ class REINFORCEAgent:
             Gt = 0 
             pw = 0
             for r in reward_batch[t:]:
-                Gt = Gt + GAMMA**pw * r
+                Gt = Gt + self.config.gamma**pw * r
                 pw = pw + 1
             discounted_rewards.append(Gt)
 
         discounted_rewards = torch.tensor(discounted_rewards)
         discounted_rewards = (discounted_rewards - discounted_rewards.mean()) / (discounted_rewards.std() + 1e-9) # normalize discounted rewards
-
+        print(discounted_rewards)
         policy_gradient = []
         for log_prob, Gt in zip(log_probs, discounted_rewards):
             policy_gradient.append(-log_prob * Gt)
@@ -192,11 +182,14 @@ class REINFORCEAgent:
         """
         for episode in tqdm(range(self.current_episode, self.config.num_episodes)):
             self.current_episode = episode
+            
             # reset environment
             self.env.reset()
             self.train_one_epoch()
+            
+            #Reset History
             self.history=HistoryMemory(self.config)
-            # The target network has its weights kept frozen most of the time
+          #  break
 
         self.env.render()
         self.env.close()
@@ -211,7 +204,7 @@ class REINFORCEAgent:
         curr_frame = self.cartpole.get_screen(self.env)
         # get state
         curr_state = curr_frame - prev_frame
-        MAX_SEQUENCE=1000
+        MAX_SEQUENCE=20000
         
         
         while(1):
@@ -222,7 +215,7 @@ class REINFORCEAgent:
             # perform action and get reward
             _, reward, done, _ = self.env.step(action)
 
-            
+                
             if self.cuda:
                 reward = torch.Tensor([reward]).to(self.device)
             else:
@@ -238,23 +231,20 @@ class REINFORCEAgent:
 
             # add this transition into memory
             self.history.push_transition(curr_state, action, next_state, reward,log_prob)
-            #self.transition_history.append([curr_state, action, next_state, reward])
 
             curr_state = next_state
 
-            # Policy model optimization step
-#             curr_loss = self.optimize_policy_model()
-#             if curr_loss is not None:
-#                 if self.cuda:
-#                     curr_loss = curr_loss.cpu()
-#                 self.summary_writer.add_scalar("Temporal Difference Loss", curr_loss.detach().numpy(), self.current_iteration)
-#             # check if done
+
             if done:
                 break
             if episode_duration==MAX_SEQUENCE:
                 break
-        self.compute_gradient()
-
+        #Policy Update
+        curr_loss=self.compute_gradient()
+        if curr_loss is not None:
+            if self.cuda:
+                     curr_loss = curr_loss.cpu()
+            self.summary_writer.add_scalar("Policy Loss", curr_loss.detach().numpy(), self.current_episode)
         self.summary_writer.add_scalar("Training Episode Duration", episode_duration, self.current_episode)
 
     def validate(self):

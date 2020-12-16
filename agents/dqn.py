@@ -37,7 +37,7 @@ class DQNAgent:
         self.loss = HuberLoss()
 
         # define optimizer
-        self.optim = torch.optim.RMSprop(self.policy_model.parameters())
+        self.optim = torch.optim.Adam(self.policy_model.parameters())
 
         # define environment
         self.env = gym.make('CartPole-v0').unwrapped
@@ -59,7 +59,7 @@ class DQNAgent:
 
         if self.cuda:
             self.logger.info("Program will run on *****GPU-CUDA***** ")
-            print_cuda_statistics()
+         #   print_cuda_statistics()
             self.device = torch.device("cuda")
             torch.cuda.set_device(self.config.gpu_device)
         else:

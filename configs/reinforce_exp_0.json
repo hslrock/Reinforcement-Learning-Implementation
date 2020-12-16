@@ -1,6 +1,6 @@
 {
-  "exp_name": "exp_0",
-  "agent": "DQNAgent",
+  "exp_name": "exp_1",
+  "agent": "REINFORCEagent",
 
   "cuda": true,
   "gpu_device": 0,
